@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}홈{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>메뉴</h2>
+  <p>원하는 기능을 선택하세요.</p>
+  <div class="downloads">
+    <a class="btn" href="{{ url_for('main.linelist') }}">Excel2Markup</a>
+    <a class="btn" href="{{ url_for('main.linelist') }}">Excel2Markup</a>
+  </div>
+</div>
+{% endblock %}
+ㄴ

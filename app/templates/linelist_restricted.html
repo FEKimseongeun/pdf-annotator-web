@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+{% block title %}라인리스트 - Restricted tag{% endblock %}
+{% block content %}
+<form class="card" action="{{ url_for('main.annotate_restricted') }}" method="post" enctype="multipart/form-data">
+  <h2>Restricted tag (A/B/C 조각이 같은 '한 줄'에 모두 포함되면 라인 전체 하이라이트)</h2>
+  <p class="muted">엑셀의 A(0), B(1), C(2) 열을 사용합니다. 각 행에서 최소 2개 이상 값이 있어야 유효 조합으로 처리합니다. 기본은 순서 무관, 옵션으로 A→B→C 순서를 강제할 수 있습니다.</p>
+
+  <div class="grid-2">
+    <div>
+      <label>엑셀 파일 (.xlsx / .xls)</label>
+      <input type="file" name="excel_file" accept=".xlsx,.xls" required />
+    </div>
+    <div>
+      <label>PDF 파일 (.pdf)</label>
+      <input type="file" name="pdf_file" accept=".pdf" required />
+    </div>
+  </div>
+
+  <h3>색상 & 불투명도</h3>
+  <div class="grid-2">
+    <div class="color-row">
+      <label>하이라이트 색상</label>
+      <input type="color" name="color_restricted" value="{{ default_color }}">
+      <span class="hex">{{ default_color }}</span>
+    </div>
+    <div class="opacity-row">
+      <label style="display:block;">불투명도</label>
+      <input type="range" name="opacity" min="0.05" max="1.0" step="0.05" value="{{ default_opacity }}" oninput="opVal.value=this.value">
+      <output id="opVal">{{ default_opacity }}</output>
+    </div>
+  </div>
+
+  <h3>검색 옵션</h3>
+  <div class="grid-2">
+    <label><input type="checkbox" name="ignore_case" checked> 대소문자 무시</label>
+    <label><input type="checkbox" name="require_order"> A→B→C 순서 강제</label>
+  </div>
+
+  <div class="actions">
+    <button type="submit">마크업 실행</button>
+    <a href="{{ url_for('main.linelist') }}" style="margin-left:8px;">← 라인리스트 메뉴</a>
+  </div>
+</form>
+
+<script>
+  document.querySelectorAll('.color-row input[type="color"]').forEach(inp=>{
+    const span = inp.parentElement.querySelector('.hex');
+    inp.addEventListener('input', ()=> span.textContent = inp.value.toUpperCase());
+  });
+</script>
+{% endblock %}
