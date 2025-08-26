@@ -30,6 +30,13 @@ def home():
 def linelist():
     return render_template("linelist.html")
 
+# --- [NEW] Instrument Coming Soon ---
+@bp.route("/instrument/comming-soon", methods=["GET"], endpoint="instrument_coming_soon")
+def instrument_coming_soon():
+    # 공용 coming_soon.html에 feature_name만 넘겨줌
+    return render_template("instrument_tag.html", feature_name="Instrument")
+
+
 # ===== Full tag: 기존 기능 페이지 =====
 @bp.route("/linelist/full", methods=["GET"])
 def linelist_full():
