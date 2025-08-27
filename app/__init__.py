@@ -7,7 +7,10 @@ def create_app():
         SECRET_KEY="change-this-in-prod",
         MAX_CONTENT_LENGTH=512 * 1024 * 1024,  # 512MB
         BASE_DIR=os.path.abspath(os.path.dirname(os.path.dirname(__file__))),
+        TEMPLATES_AUTO_RELOAD=True,
+        SEND_FILE_MAX_AGE_DEFAULT=0,
     )
+    app.jinja_env.auto_reload = True
 
     # 프로젝트 루트 기준 경로
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

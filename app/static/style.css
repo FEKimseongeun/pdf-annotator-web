@@ -18,6 +18,7 @@ input[type="file"], input[type="color"], input[type="range"] { width: 100%; padd
 .actions { margin-top: 20px; }
 button, .btn { background:var(--primary); color:var(--primary-contrast); border:none; border-radius:10px; padding:12px 16px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-block; }
 .btn.secondary { background:#0f172a; }
+button, .btn-disabled { background:#A6A6A6; color:var(--primary-contrast); border:none; border-radius:10px; padding:12px 16px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-block; }
 .flash { margin: 12px 0; }
 .flash-item { background:#fee2e2; border:1px solid #fecaca; color:#7f1d1d; padding:8px 12px; border-radius:8px; }
 .footer { margin-top: 24px; color:var(--muted); font-size: 12px; text-align:center; }

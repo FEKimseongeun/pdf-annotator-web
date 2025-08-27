@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block title %}{{ feature_name }} - Coming Soon{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>{{ feature_name }} 기능은 준비 중입니다</h2>
+  <p>조금만 기다려주세요. 곧 공개됩니다.</p>
+  <div class="actions">
+    <a href="{{ url_for('main.home') }}">← 홈으로</a>
+  </div>
+</div>
+{% endblock %}

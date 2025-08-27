@@ -1,0 +1,143 @@
+# app/services/common.py
+import os
+import hashlib
+from multiprocessing import cpu_count
+from typing import Dict, List, Tuple, Optional
+
+import pandas as pd
+import fitz  # PyMuPDF
+
+
+# A/B/C/D → 엑셀 컬럼 인덱스 매핑 (0-based)
+COLUMN_MAP: List[Tuple[int, str]] = [
+    (0, "A"),
+    (1, "B"),
+    (2, "C"),
+    (3, "D"),
+]
+
+MAX_WORKERS = max(1, cpu_count() - 1)
+
+
+def dedupe_rows_in_sheet(
+    rows: List[Tuple[Optional[str], Optional[str], Optional[str]]],
+    ignore_case: bool
+) -> List[Tuple[Optional[str], Optional[str], Optional[str]]]:
+    """
+    시트 내부 (A,B,C) '완전 동일' 중복 제거. 순서그대로, 처음 것만 남김.
+    유니코드 정규화/strip 안 함. 필요시 ignore_case=True면 소문자 비교만 적용.
+    """
+    seen = set()
+    out = []
+    for a, b, c in rows:
+        ka = a.lower() if (ignore_case and isinstance(a, str)) else a
+        kb = b.lower() if (ignore_case and isinstance(b, str)) else b
+        kc = c.lower() if (ignore_case and isinstance(c, str)) else c
+        key = (ka, kb, kc)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((a, b, c))
+    return out
+def hex_to_rgb01(hex_str: str) -> Tuple[float, float, float]:
+    s = hex_str.strip()
+    if s.startswith("#"):
+        s = s[1:]
+    if len(s) != 6:
+        raise ValueError(f"Invalid hex color: {hex_str}")
+    r = int(s[0:2], 16) / 255.0
+    g = int(s[2:4], 16) / 255.0
+    b = int(s[4:6], 16) / 255.0
+    return (r, g, b)
+
+def search_flags(ignore_case: bool, whole_word: bool) -> int:
+    flags = 0
+    try:
+        if ignore_case:
+            flags |= fitz.TEXT_IGNORECASE
+    except AttributeError:
+        pass
+    try:
+        if whole_word:
+            flags |= fitz.TEXT_MATCH_WHOLE_WORDS
+    except AttributeError:
+        pass
+    return flags
+
+def page_lines_with_words(page: fitz.Page):
+    """
+    words 단위 텍스트를 line으로 묶어서:
+    - line_text: 라인 문자열
+    - rect: 전체 bbox
+    """
+    words = page.get_text("words")  # [x0,y0,x1,y1,word, block_no, line_no, word_no]
+    lines_map = {}
+    for w in words:
+        x0, y0, x1, y1, token, block_no, line_no, word_no = w
+        key = (block_no, line_no)
+        if key not in lines_map:
+            lines_map[key] = {"tokens": [], "rect": [x0, y0, x1, y1]}
+        lines_map[key]["tokens"].append(token)
+        r = lines_map[key]["rect"]
+        r[0] = min(r[0], x0); r[1] = min(r[1], y0); r[2] = max(r[2], x1); r[3] = max(r[3], y1)
+
+    out = []
+    for (block_no, line_no), v in lines_map.items():
+        text = " ".join(v["tokens"])
+        out.append({
+            "block": block_no,
+            "line": line_no,
+            "line_text": text,
+            "rect": tuple(v["rect"])
+        })
+    return out
+
+def color_hex_from_sheet_name(sheet_name: str) -> str:
+    """ 시트명 해시 기반 0x40~0xC0 범위 색상 """
+    h = hashlib.sha256(sheet_name.encode("utf-8")).hexdigest()
+    def pick(i):
+        v = int(h[i:i+2], 16)
+        v = 0x40 + int((v / 255.0) * (0xC0 - 0x40))
+        return v
+    r, g, b = pick(0), pick(2), pick(4)
+    return "#{:02X}{:02X}{:02X}".format(r, g, b)
+
+def rect_key(rect_tuple, ndigits: int = 2):
+    x0, y0, x1, y1 = rect_tuple
+    return (round(x0, ndigits), round(y0, ndigits), round(x1, ndigits), round(y1, ndigits))
+
+def gather_terms_full(excel_path: str, clean_terms: bool) -> List[Tuple[str, str]]:
+    """ Full용: A/B/C/D 열에서 검색어 수집 (헤더 'A','B','C','D' 제외) """
+    df = pd.read_excel(excel_path, header=None)
+    out: List[Tuple[str, str]] = []
+    for col_idx, label in COLUMN_MAP:
+        if col_idx not in df.columns:
+            continue
+        s = df[col_idx].dropna().astype(str)
+        if clean_terms:
+            s = s.map(lambda x: x.strip())
+        s = s[s != ""]
+        s = s[~s.str.fullmatch(label, case=False)]
+        terms = list(dict.fromkeys(s.tolist()))
+        for t in terms:
+            out.append((label, t))
+    return out
+
+def gather_restricted_rows_from_df(df: pd.DataFrame, clean_terms: bool) -> List[Tuple[Optional[str], Optional[str], Optional[str]]]:
+    """
+    단일 시트(df)에서 A(0), B(1), C(2) 열의 행 단위 조합 수집. 최소 2개 이상 값 필요.
+    """
+    rows = []
+    for idx in range(len(df)):
+        a = str(df.iloc[idx, 0]) if 0 in df.columns and pd.notna(df.iloc[idx, 0]) else ""
+        b = str(df.iloc[idx, 1]) if 1 in df.columns and pd.notna(df.iloc[idx, 1]) else ""
+        c = str(df.iloc[idx, 2]) if 2 in df.columns and pd.notna(df.iloc[idx, 2]) else ""
+        if clean_terms:
+            a, b, c = a.strip(), b.strip(), c.strip()
+        a = a if a != "" else None
+        b = b if b != "" else None
+        c = c if c != "" else None
+        non_empty = sum(x is not None for x in (a, b, c))
+        if non_empty >= 2:
+            rows.append((a, b, c))
+    return rows

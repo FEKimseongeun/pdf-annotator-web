@@ -1,3 +1,4 @@
+# app/routes.py
 import os
 import time
 from uuid import uuid4
@@ -6,7 +7,7 @@ from flask import (
     redirect, url_for, send_from_directory, flash
 )
 from werkzeug.utils import secure_filename
-from .services.annotate_service import (
+from .services import (
     annotate_pdf_with_excel,           # Full tag
     annotate_pdf_restricted_with_excel # Restricted tag
 )
@@ -20,39 +21,29 @@ def _ext_ok(filename, allow_set):
     _, ext = os.path.splitext(filename.lower())
     return ext in allow_set
 
-# ===== 대문 (홈) =====
 @bp.route("/", methods=["GET"])
 def home():
     return render_template("home.html")
 
-# ===== 라인리스트 메뉴 (Full/Restricted 진입점) =====
 @bp.route("/linelist", methods=["GET"])
 def linelist():
     return render_template("linelist.html")
 
-# --- [NEW] Instrument Coming Soon ---
-@bp.route("/instrument/comming-soon", methods=["GET"], endpoint="instrument_coming_soon")
+@bp.route("/instrument/coming-soon", methods=["GET"], endpoint="instrument_coming_soon")
 def instrument_coming_soon():
-    # 공용 coming_soon.html에 feature_name만 넘겨줌
-    return render_template("instrument_tag.html", feature_name="Instrument")
+    return render_template("comming_soon.html", feature_name="Instrument")
 
-
-# ===== Full tag: 기존 기능 페이지 =====
 @bp.route("/linelist/full", methods=["GET"])
 def linelist_full():
     default_colors = {
-        "A": "#FFFF99",
-        "B": "#FF9999",
-        "C": "#99BFFF",
-        "D": "#99FF99",
+        "A": "#FFFF99", "B": "#FF9999", "C": "#99BFFF", "D": "#99FF99",
     }
     default_opacity = 0.35
     return render_template("linelist_full.html", defaults=default_colors, default_opacity=default_opacity)
 
-# ===== Restricted tag: A/B/C가 같은 '한 줄'에 모두 포함되면 라인 전체 하이라이트 =====
 @bp.route("/linelist/restricted", methods=["GET"])
 def linelist_restricted():
-    default_restricted_color = "#FFD54D"  # 연한 앰버
+    default_restricted_color = "#FFD54D"
     default_opacity = 0.35
     return render_template("linelist_restricted.html", default_color=default_restricted_color, default_opacity=default_opacity)
 
@@ -62,7 +53,6 @@ def annotate_full():
     ignore_case = request.form.get("ignore_case") == "on"
     whole_word  = request.form.get("whole_word") == "on"
     opacity     = float(request.form.get("opacity", "0.35"))
-
     color_hex = {
         "A": request.form.get("color_A", "#FFFF99"),
         "B": request.form.get("color_B", "#FF9999"),
@@ -72,36 +62,30 @@ def annotate_full():
 
     excel_file = request.files.get("excel_file")
     pdf_file   = request.files.get("pdf_file")
-
     if not excel_file or excel_file.filename == "":
-        flash("엑셀 파일을 업로드하세요.")
-        return redirect(url_for("main.linelist_full"))
+        flash("엑셀 파일을 업로드하세요."); return redirect(url_for("main.linelist_full"))
     if not pdf_file or pdf_file.filename == "":
-        flash("PDF 파일을 업로드하세요.")
-        return redirect(url_for("main.linelist_full"))
-
+        flash("PDF 파일을 업로드하세요."); return redirect(url_for("main.linelist_full"))
     if not _ext_ok(excel_file.filename, ALLOWED_XL):
-        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다.")
-        return redirect(url_for("main.linelist_full"))
+        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다."); return redirect(url_for("main.linelist_full"))
     if not _ext_ok(pdf_file.filename, ALLOWED_PDF):
-        flash("PDF 파일만 지원합니다.")
-        return redirect(url_for("main.linelist_full"))
+        flash("PDF 파일만 지원합니다."); return redirect(url_for("main.linelist_full"))
 
     job_id = f"{int(time.time())}_{uuid4().hex[:8]}"
     xlsx_name = secure_filename(f"{job_id}_" + excel_file.filename)
     pdf_in_name = secure_filename(f"{job_id}_" + pdf_file.filename)
     xlsx_path = os.path.join(current_app.config["UPLOAD_XLSX_DIR"], xlsx_name)
     pdf_in_path = os.path.join(current_app.config["UPLOAD_PDF_DIR"], pdf_in_name)
-    excel_file.save(xlsx_path)
-    pdf_file.save(pdf_in_path)
+    excel_file.save(xlsx_path); pdf_file.save(pdf_in_path)
 
-    base_name, _ = os.path.splitext(pdf_in_name)
-    pdf_out_name = base_name + "_annotated_full.pdf"
-    not_found_name = f"{base_name}_not_found_full.xlsx"
-
-    pdf_out_path = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
+    # 결과물 파일명 규칙: 원본이름 + _ann
+    orig_pdf_base = os.path.splitext(secure_filename(pdf_file.filename))[0]
+    pdf_out_name   = f"{orig_pdf_base}_ann.pdf"
+    not_found_name = f"{orig_pdf_base}_ann.xlsx"
+    pdf_out_path   = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
     not_found_path = os.path.join(current_app.config["OUTPUT_DIR"], not_found_name)
 
+    current_app.logger.info(f"[FULL] job={job_id} START xlsx={xlsx_path}, pdf={pdf_in_path} -> out={pdf_out_path}")
     try:
         stats = annotate_pdf_with_excel(
             excel_path=xlsx_path,
@@ -119,6 +103,8 @@ def annotate_full():
         flash(f"작업 중 오류가 발생했습니다: {e}")
         return redirect(url_for("main.linelist_full"))
 
+    current_app.logger.info(f"[FULL] job={job_id} DONE hits={stats.get('hits')} nf={stats.get('not_found_count')} out={pdf_out_path}")
+
     return render_template(
         "result.html",
         stats=stats,
@@ -129,44 +115,37 @@ def annotate_full():
 # ===== Restricted tag 처리 =====
 @bp.route("/annotate/restricted", methods=["POST"])
 def annotate_restricted():
-    # 옵션
-    ignore_case = request.form.get("ignore_case") == "on"
-    require_order = request.form.get("require_order") == "on"  # A→B→C 순서 강제 여부
-    opacity     = float(request.form.get("opacity", "0.35"))
-    color_hex   = request.form.get("color_restricted", "#FFD54D")
+    ignore_case  = request.form.get("ignore_case") == "on"
+    require_order = request.form.get("require_order") == "on"
+    opacity      = float(request.form.get("opacity", "0.35"))
+    color_hex    = request.form.get("color_restricted", "#FFD54D")  # (현재 자동색 사용으로 무시됨)
 
     excel_file = request.files.get("excel_file")
     pdf_file   = request.files.get("pdf_file")
-
     if not excel_file or excel_file.filename == "":
-        flash("엑셀 파일을 업로드하세요.")
-        return redirect(url_for("main.linelist_restricted"))
+        flash("엑셀 파일을 업로드하세요."); return redirect(url_for("main.linelist_restricted"))
     if not pdf_file or pdf_file.filename == "":
-        flash("PDF 파일을 업로드하세요.")
-        return redirect(url_for("main.linelist_restricted"))
-
+        flash("PDF 파일을 업로드하세요."); return redirect(url_for("main.linelist_restricted"))
     if not _ext_ok(excel_file.filename, ALLOWED_XL):
-        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다.")
-        return redirect(url_for("main.linelist_restricted"))
+        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다."); return redirect(url_for("main.linelist_restricted"))
     if not _ext_ok(pdf_file.filename, ALLOWED_PDF):
-        flash("PDF 파일만 지원합니다.")
-        return redirect(url_for("main.linelist_restricted"))
+        flash("PDF 파일만 지원합니다."); return redirect(url_for("main.linelist_restricted"))
 
     job_id = f"{int(time.time())}_{uuid4().hex[:8]}"
     xlsx_name = secure_filename(f"{job_id}_" + excel_file.filename)
     pdf_in_name = secure_filename(f"{job_id}_" + pdf_file.filename)
     xlsx_path = os.path.join(current_app.config["UPLOAD_XLSX_DIR"], xlsx_name)
     pdf_in_path = os.path.join(current_app.config["UPLOAD_PDF_DIR"], pdf_in_name)
-    excel_file.save(xlsx_path)
-    pdf_file.save(pdf_in_path)
+    excel_file.save(xlsx_path); pdf_file.save(pdf_in_path)
 
-    base_name, _ = os.path.splitext(pdf_in_name)
-    pdf_out_name = base_name + "_annotated_restricted.pdf"
-    not_found_name = f"{base_name}_not_found_restricted.xlsx"
-
-    pdf_out_path = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
+    # 결과물 파일명 규칙: 원본이름 + _ann
+    orig_pdf_base = os.path.splitext(secure_filename(pdf_file.filename))[0]
+    pdf_out_name   = f"{orig_pdf_base}_ann.pdf"
+    not_found_name = f"{orig_pdf_base}_ann.xlsx"
+    pdf_out_path   = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
     not_found_path = os.path.join(current_app.config["OUTPUT_DIR"], not_found_name)
 
+    current_app.logger.info(f"[RES] job={job_id} START xlsx={xlsx_path}, pdf={pdf_in_path} -> out={pdf_out_path}")
     try:
         stats = annotate_pdf_restricted_with_excel(
             excel_path=xlsx_path,
@@ -177,18 +156,23 @@ def annotate_restricted():
             opacity=opacity,
             ignore_case=ignore_case,
             require_order=require_order,
-            clean_terms=False  # 요청 반영: 전처리 없이 원문 검색
+            clean_terms=False
         )
     except Exception as e:
         current_app.logger.exception(e)
         flash(f"작업 중 오류가 발생했습니다: {e}")
         return redirect(url_for("main.linelist_restricted"))
 
+    current_app.logger.info(
+        f"[RES] job={job_id} DONE pages={stats.get('pages')} total_hits={stats.get('hits')} "
+        f"sheets={stats.get('sheets')} nf_file={stats.get('not_found_file_written')} out={pdf_out_path}"
+    )
+
     return render_template(
         "result.html",
         stats=stats,
         output_pdf=pdf_out_name,
-        not_found_xlsx=(not_found_name if os.path.exists(not_found_path) and stats.get("not_found_count", 0) > 0 else None)
+        not_found_xlsx=(not_found_name if stats.get("not_found_file_written") else None)
     )
 
 @bp.route("/download/output/<path:filename>")
