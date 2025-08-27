@@ -2,10 +2,11 @@
 {% block title %}라인리스트 - Restricted tag{% endblock %}
 {% block content %}
 <form class="card" action="{{ url_for('main.annotate_restricted') }}" method="post" enctype="multipart/form-data">
-  <h2>Restricted tag (A/B/C 조각이 같은 '한 줄'에 모두 포함되면 라인 전체 하이라이트)</h2>
+  <h2>Restricted Mark Up</h2>
   <p class="muted">
-    엑셀의 A(0), B(1), C(2) 열을 사용합니다. 각 <strong>시트별로</strong> 최소 2개 이상 값이 있는 행만 유효 조합으로 처리합니다.<br>
-    <strong>색상은 시트명 기반으로 자동 지정</strong>되며, 같은 시트는 항상 동일한 색으로 표시됩니다.
+    엑셀의 각 열 데이터를 보고 Line No인지 AI로 판단합니다. 각 <strong>시트별로</strong> 색상이 구분되어 마크업됩니다.<br>
+    <strong>색상은 시트명 기반으로 자동 지정</strong>되며, 같은 시트는 항상 동일한 색으로 표시됩니다.<br><br>
+    해당 프로그램은 Input 템플릿이 정해져 있으므로, 필요시 담당자에 문의 하세요.<br>
   </p>
 
   <div class="grid-2">

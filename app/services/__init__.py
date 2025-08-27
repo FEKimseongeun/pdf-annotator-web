@@ -1,4 +1,3 @@
-# app/services/__init__.py
 from .full_service import annotate_pdf_with_excel
 from .restricted_service import annotate_pdf_restricted_with_excel
 

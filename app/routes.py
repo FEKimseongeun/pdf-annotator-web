@@ -1,4 +1,3 @@
-# app/routes.py
 import os
 import time
 from uuid import uuid4
@@ -7,9 +6,10 @@ from flask import (
     redirect, url_for, send_from_directory, flash
 )
 from werkzeug.utils import secure_filename
+
 from .services import (
-    annotate_pdf_with_excel,           # Full tag
-    annotate_pdf_restricted_with_excel # Restricted tag
+    annotate_pdf_with_excel,           # Full
+    annotate_pdf_restricted_with_excel # Restricted
 )
 
 bp = Blueprint("main", __name__)
@@ -21,26 +21,29 @@ def _ext_ok(filename, allow_set):
     _, ext = os.path.splitext(filename.lower())
     return ext in allow_set
 
+# ===== 홈 =====
 @bp.route("/", methods=["GET"])
 def home():
     return render_template("home.html")
 
+# ===== 라인리스트 메뉴 =====
 @bp.route("/linelist", methods=["GET"])
 def linelist():
     return render_template("linelist.html")
 
+# ===== Coming soon =====
 @bp.route("/instrument/coming-soon", methods=["GET"], endpoint="instrument_coming_soon")
 def instrument_coming_soon():
     return render_template("comming_soon.html", feature_name="Instrument")
 
+# ===== Full tag 페이지 =====
 @bp.route("/linelist/full", methods=["GET"])
 def linelist_full():
-    default_colors = {
-        "A": "#FFFF99", "B": "#FF9999", "C": "#99BFFF", "D": "#99FF99",
-    }
+    default_colors = {"A": "#FFFF99","B": "#FF9999","C": "#99BFFF","D": "#99FF99"}
     default_opacity = 0.35
     return render_template("linelist_full.html", defaults=default_colors, default_opacity=default_opacity)
 
+# ===== Restricted tag 페이지 =====
 @bp.route("/linelist/restricted", methods=["GET"])
 def linelist_restricted():
     default_restricted_color = "#FFD54D"
@@ -53,6 +56,7 @@ def annotate_full():
     ignore_case = request.form.get("ignore_case") == "on"
     whole_word  = request.form.get("whole_word") == "on"
     opacity     = float(request.form.get("opacity", "0.35"))
+
     color_hex = {
         "A": request.form.get("color_A", "#FFFF99"),
         "B": request.form.get("color_B", "#FF9999"),
@@ -78,7 +82,7 @@ def annotate_full():
     pdf_in_path = os.path.join(current_app.config["UPLOAD_PDF_DIR"], pdf_in_name)
     excel_file.save(xlsx_path); pdf_file.save(pdf_in_path)
 
-    # 결과물 파일명 규칙: 원본이름 + _ann
+    # 출력 파일명: 원본이름 + _ann
     orig_pdf_base = os.path.splitext(secure_filename(pdf_file.filename))[0]
     pdf_out_name   = f"{orig_pdf_base}_ann.pdf"
     not_found_name = f"{orig_pdf_base}_ann.xlsx"
@@ -115,10 +119,10 @@ def annotate_full():
 # ===== Restricted tag 처리 =====
 @bp.route("/annotate/restricted", methods=["POST"])
 def annotate_restricted():
-    ignore_case  = request.form.get("ignore_case") == "on"
+    ignore_case   = request.form.get("ignore_case") == "on"
     require_order = request.form.get("require_order") == "on"
-    opacity      = float(request.form.get("opacity", "0.35"))
-    color_hex    = request.form.get("color_restricted", "#FFD54D")  # (현재 자동색 사용으로 무시됨)
+    opacity       = float(request.form.get("opacity", "0.35"))
+    color_hex     = request.form.get("color_restricted", "#FFD54D")  # (자동색 사용으로 실사용 X)
 
     excel_file = request.files.get("excel_file")
     pdf_file   = request.files.get("pdf_file")
@@ -138,7 +142,7 @@ def annotate_restricted():
     pdf_in_path = os.path.join(current_app.config["UPLOAD_PDF_DIR"], pdf_in_name)
     excel_file.save(xlsx_path); pdf_file.save(pdf_in_path)
 
-    # 결과물 파일명 규칙: 원본이름 + _ann
+    # 출력 파일명: 원본이름 + _ann
     orig_pdf_base = os.path.splitext(secure_filename(pdf_file.filename))[0]
     pdf_out_name   = f"{orig_pdf_base}_ann.pdf"
     not_found_name = f"{orig_pdf_base}_ann.xlsx"
@@ -165,7 +169,8 @@ def annotate_restricted():
 
     current_app.logger.info(
         f"[RES] job={job_id} DONE pages={stats.get('pages')} total_hits={stats.get('hits')} "
-        f"sheets={stats.get('sheets')} nf_file={stats.get('not_found_file_written')} out={pdf_out_path}"
+        f"sheets={stats.get('sheets')} rows_before={stats.get('rows_before_total')} rows_after={stats.get('rows_after_total')} "
+        f"nf_file={stats.get('not_found_file_written')} out={pdf_out_path}"
     )
 
     return render_template(

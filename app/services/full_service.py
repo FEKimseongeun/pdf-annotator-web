@@ -1,17 +1,18 @@
 # app/services/full_service.py
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from typing import Dict, List, Tuple
 
 import pandas as pd
 import fitz  # PyMuPDF
 
 from .common import (
-    MAX_WORKERS, hex_to_rgb01, search_flags, gather_terms_full
+    MAX_WORKERS, get_executor, hex_to_rgb01, search_flags,
+    gather_terms_full, save_pdf
 )
 
 def _scan_term_job(term, pdf_path, num_pages, flags):
-    """서브프로세스에서 실행 (Full tag)"""
+    """Full tag: 서브 작업(프로세스/스레드 공용)"""
     label, rgb, text = term
     try:
         hits_by_page = []
@@ -56,7 +57,7 @@ def annotate_pdf_with_excel(
     not_found = []
     failed = []
 
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as ex:
+    with get_executor(max_workers=MAX_WORKERS) as ex:
         futures = {ex.submit(_scan_term_job, job, pdf_input_path, num_pages, flags): job for job in jobs}
         for fut in as_completed(futures):
             (label, rgb, text) = futures[fut]
@@ -77,13 +78,13 @@ def annotate_pdf_with_excel(
                 page = doc.load_page(pno)
                 for (_label, _text, _rgb, (x0, y0, x1, y1)) in page_hits:
                     annot = page.add_highlight_annot(fitz.Rect(x0, y0, x1, y1))
-                    annot.set_colors(stroke=_rgb, fill=_rgb)
+                    annot.set_colors(stroke=_rgb)   # highlight는 fill 미지원
                     annot.set_opacity(opacity)
                     annot.set_info(content=f"{_label}: {_text}", title="자동 검색")
                     annot.update()
                     total_hits += 1
 
-    doc.save(pdf_output_path, deflate=True, garbage=4)
+    save_pdf(doc, pdf_output_path, compact=True)
     doc.close()
 
     not_found_count = len(not_found)
