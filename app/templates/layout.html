@@ -19,7 +19,12 @@
       {% endif %}
     {% endwith %}
     {% block content %}{% endblock %}
-    <footer class="footer">💫 개발담당자 : 플랜트BPI팀 김성은 사원</footer>
+    <footer class="footer">
+      💫 개발담당자 : 플랜트BPI팀 김성은 사원
+      <div class="actions" style="margin-top:10px;">s
+        <a class="btn secondary" href="/shutdown" onclick="return confirm('정말로 프로그램을 종료하시겠습니까?');">프로그램 종료</a>
+      </div>
+    </footer>
   </div>
 </body>
 </html>

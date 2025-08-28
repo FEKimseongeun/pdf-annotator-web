@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}라인리스트 - Full tag{% endblock %}
 {% block content %}
-<form class="card" action="{{ url_for('main.annotate_full') }}" method="post" enctype="multipart/form-data">
+<form class="card" id="upload-form" action="{{ url_for('main.annotate_full') }}" method="post" enctype="multipart/form-data">
   <h2>Full tag (정확 문자열 매칭)</h2>
 
   <div class="grid-2">
@@ -57,7 +57,27 @@
   </div>
 </form>
 
+<div class="card" id="loading-state" style="display:none;">
+  <h2>처리 중...</h2>
+  <p>PDF 마크업 작업을 실행하고 있습니다. 파일 크기에 따라 몇 분 정도 소요될 수 있습니다.</p>
+  <div class="actions">
+    <a href="{{ url_for('main.linelist_full') }}" class="btn secondary">작업 취소 및 초기화</a>
+  </div>
+</div>
+
 <script>
+  // '마크업 실행' 버튼 클릭 시 UI 변경
+  document.getElementById('upload-form').addEventListener('submit', function() {
+    const excelFile = this.elements['excel_file'].files.length;
+    const pdfFile = this.elements['pdf_file'].files.length;
+    // 파일이 모두 선택되었을 때만 실행
+    if (excelFile > 0 && pdfFile > 0) {
+      document.getElementById('upload-form').style.display = 'none';
+      document.getElementById('loading-state').style.display = 'block';
+    }
+  });
+
+  // 색상 hex 코드 표시 갱신 (기존 기능)
   document.querySelectorAll('.color-row input[type="color"]').forEach(inp=>{
     const span = inp.parentElement.querySelector('.hex');
     inp.addEventListener('input', ()=> span.textContent = inp.value.toUpperCase());

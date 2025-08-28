@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}라인리스트 - Restricted tag{% endblock %}
 {% block content %}
-<form class="card" action="{{ url_for('main.annotate_restricted') }}" method="post" enctype="multipart/form-data">
+<form class="card" id="upload-form" action="{{ url_for('main.annotate_restricted') }}" method="post" enctype="multipart/form-data">
   <h2>Restricted Mark Up</h2>
   <p class="muted">
     엑셀의 각 열 데이터를 보고 Line No인지 AI로 판단합니다. 각 <strong>시트별로</strong> 색상이 구분되어 마크업됩니다.<br>
@@ -40,4 +40,25 @@
     <a href="{{ url_for('main.linelist') }}" style="margin-left:8px;">← 라인리스트 메뉴</a>
   </div>
 </form>
+
+<div class="card" id="loading-state" style="display:none;">
+  <h2>처리 중...</h2>
+  <p>PDF 마크업 작업을 실행하고 있습니다. 파일 크기에 따라 몇 분 정도 소요될 수 있습니다.</p>
+  <div class="actions">
+    <a href="{{ url_for('main.linelist_restricted') }}" class="btn secondary">작업 취소 및 초기화</a>
+  </div>
+</div>
+
+<script>
+  // '마크업 실행' 버튼 클릭 시 UI 변경
+  document.getElementById('upload-form').addEventListener('submit', function() {
+    const excelFile = this.elements['excel_file'].files.length;
+    const pdfFile = this.elements['pdf_file'].files.length;
+    // 파일이 모두 선택되었을 때만 실행
+    if (excelFile > 0 && pdfFile > 0) {
+      document.getElementById('upload-form').style.display = 'none';
+      document.getElementById('loading-state').style.display = 'block';
+    }
+  });
+</script>
 {% endblock %}

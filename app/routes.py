@@ -1,10 +1,12 @@
 import os
 import time
 from uuid import uuid4
+# 파일 상단 flask import 구문에 request 추가
 from flask import (
     Blueprint, current_app, render_template, request,
     redirect, url_for, send_from_directory, flash
 )
+
 from werkzeug.utils import secure_filename
 
 from .services import (
@@ -189,3 +191,20 @@ def download_upload(filename):
     up_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     root = os.path.join(up_root, "uploads")
     return send_from_directory(root, filename, as_attachment=True)
+
+# 파일 맨 아래에 아래 내용 추가
+@bp.route('/shutdown')
+def shutdown():
+    """
+    서버를 정상적으로 종료시키되, 실패 시 강제로 종료합니다.
+    """
+    # 1. 정상 종료 시도
+    shutdown_func = request.environ.get('werkzeug.server.shutdown')
+    if shutdown_func:
+        print("Graceful shutdown initiated.")
+        shutdown_func()
+        return "서버 종료 중..."
+
+    # 2. 정상 종료 실패 시 (사용자 환경) 강제 종료 실행
+    print("Graceful shutdown not available. Forcing process termination.")
+    os._exit(0)
