@@ -9,6 +9,10 @@
     <li>하이라이트 개수: <strong>{{ stats.hits }}</strong></li>
     <li>미매칭 개수: <strong>{{ stats.not_found_count }}</strong></li>
     <li>작업 실패 항목(요약): <strong>{{ stats.failed_count }}</strong></li>
+    <!-- ✅ 처리 시간 표시 -->
+    {% if stats.elapsed_time %}
+    <li>처리 시간: <strong>{{ stats.elapsed_time }}초</strong></li>
+    {% endif %}
   </ul>
 
   <div class="downloads">

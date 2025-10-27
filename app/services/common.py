@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 # ===== 실행 환경 / 풀 선택 =====
 IS_FROZEN = getattr(sys, "frozen", False)  # PyInstaller 동결 여부
-MAX_WORKERS = max(1, (os.cpu_count() or 4) - 1)
+MAX_WORKERS = os.cpu_count() or 4  # ✅ 모든 코어 사용 (-1 제거)
 DEFAULT_POOL = "thread" if IS_FROZEN else "process"   # exe는 thread가 유리
 
 def get_executor(kind: Optional[str] = None, max_workers: int = MAX_WORKERS):
@@ -22,6 +22,12 @@ def get_executor(kind: Optional[str] = None, max_workers: int = MAX_WORKERS):
     if use.startswith("t"):
         return ThreadPoolExecutor(max_workers=max_workers)
     return ProcessPoolExecutor(max_workers=max_workers)
+
+# ✅ PDF 메모리 로드 함수 추가
+def load_pdf_to_bytes(pdf_path: str) -> bytes:
+    """PDF 파일을 메모리에 로드하여 반복 I/O 방지"""
+    with open(pdf_path, 'rb') as f:
+        return f.read()
 
 # ===== 색상/검색 유틸 =====
 def hex_to_rgb01(hex_str: str) -> Tuple[float, float, float]:

@@ -13,7 +13,7 @@ def create_app():
 
     app.config.update(
         SECRET_KEY="change-this-in-prod",
-        MAX_CONTENT_LENGTH=512 * 1024 * 1024,  # 512MB
+        MAX_CONTENT_LENGTH=2 * 1024 * 1024 * 1024,  # ✅ 2GB로 증가 (기존 512MB)
     )
 
     # 업/출력 경로
@@ -32,5 +32,6 @@ def create_app():
     # 진단 로그 (콘솔에 실제 경로 찍힘)
     print("[Flask] template_folder =", app.template_folder)
     print("[Flask] static_folder   =", app.static_folder)
+    print(f"[Flask] MAX_CONTENT_LENGTH = {app.config['MAX_CONTENT_LENGTH'] / (1024**3):.1f}GB")  # ✅ 용량 로그
 
     return app

@@ -8,25 +8,25 @@ import fitz  # PyMuPDF
 
 from .common import (
     MAX_WORKERS, get_executor, hex_to_rgb01, search_flags,
-    gather_terms_full, save_pdf
+    gather_terms_full, save_pdf, load_pdf_to_bytes  # ✅ 추가
 )
 
 
 def _scan_page_for_all_terms(
         page_no: int,
-        pdf_path: str,
+        pdf_bytes: bytes,  # ✅ 경로 대신 바이트 데이터
         terms_with_meta: List[Tuple[str, str, Tuple[float, float, float]]],  # (label, text, rgb)
         flags: int
 ) -> Tuple[int, List[Tuple[str, str, Tuple[float, float, float], fitz.Rect]], str | None]:
     """
     【최적화된 함수】
-    하나의 페이지를 열어 모든 검색어(terms)를 한 번에 검색합니다.
+    하나의 페이지를 메모리에서 열어 모든 검색어(terms)를 한 번에 검색합니다.
     반환값: (페이지 번호, [(label, text, rgb, rect), ...], 에러 메시지)
     """
     page_hits = []
     try:
-        # 각 프로세스/스레드에서 문서를 독립적으로 엽니다.
-        with fitz.open(pdf_path) as doc:
+        # ✅ 메모리에서 PDF 열기 (디스크 I/O 제거)
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
             page = doc.load_page(page_no)
             for label, text, rgb in terms_with_meta:
                 rects = page.search_for(text, flags=flags)
@@ -61,6 +61,9 @@ def annotate_pdf_with_excel(
 
     terms_with_meta = [(label, text, color_map_rgb.get(label, (1, 1, 0))) for label, text in all_terms]
 
+    # ✅ PDF를 메모리에 로드 (한 번만)
+    pdf_bytes = load_pdf_to_bytes(pdf_input_path)
+
     doc = fitz.open(pdf_input_path)
     num_pages = len(doc)
     flags = search_flags(ignore_case, whole_word)
@@ -71,9 +74,9 @@ def annotate_pdf_with_excel(
 
     # 2. 【로직 변경】페이지 단위로 작업을 병렬 처리합니다.
     with get_executor(max_workers=MAX_WORKERS) as ex:
-        # 각 페이지를 스캔하는 작업을 제출
+        # ✅ 각 페이지를 스캔하는 작업을 제출 (pdf_bytes 전달)
         futures = {
-            ex.submit(_scan_page_for_all_terms, p, pdf_input_path, terms_with_meta, flags): p
+            ex.submit(_scan_page_for_all_terms, p, pdf_bytes, terms_with_meta, flags): p
             for p in range(num_pages)
         }
 
@@ -106,7 +109,7 @@ def annotate_pdf_with_excel(
     all_terms_set = set(all_terms)
     not_found = list(all_terms_set - found_terms)
 
-    save_pdf(doc, pdf_output_path, compact=True)
+    save_pdf(doc, pdf_output_path, compact=False)  # ✅ 빠른 저장
     doc.close()
 
     not_found_count = len(not_found)

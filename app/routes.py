@@ -1,7 +1,7 @@
+# app/routes.py
 import os
 import time
 from uuid import uuid4
-# 파일 상단 flask import 구문에 request 추가
 from flask import (
     Blueprint, current_app, render_template, request,
     redirect, url_for, send_from_directory, flash
@@ -10,54 +10,65 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from .services import (
-    annotate_pdf_with_excel,           # Full
-    annotate_pdf_restricted_with_excel # Restricted
+    annotate_pdf_with_excel,  # Full
+    annotate_pdf_restricted_with_excel  # Restricted
 )
 
 bp = Blueprint("main", __name__)
 
 ALLOWED_PDF = {".pdf"}
-ALLOWED_XL  = {".xlsx", ".xls"}
+ALLOWED_XL = {".xlsx", ".xls"}
+
 
 def _ext_ok(filename, allow_set):
     _, ext = os.path.splitext(filename.lower())
     return ext in allow_set
+
 
 # ===== 홈 =====
 @bp.route("/", methods=["GET"])
 def home():
     return render_template("home.html")
 
+
 # ===== 라인리스트 메뉴 =====
 @bp.route("/linelist", methods=["GET"])
 def linelist():
     return render_template("linelist.html")
+
 
 # ===== Coming soon =====
 @bp.route("/instrument/coming-soon", methods=["GET"], endpoint="instrument_coming_soon")
 def instrument_coming_soon():
     return render_template("comming_soon.html", feature_name="Instrument")
 
+
 # ===== Full tag 페이지 =====
 @bp.route("/linelist/full", methods=["GET"])
 def linelist_full():
-    default_colors = {"A": "#FFFF99","B": "#FF9999","C": "#99BFFF","D": "#99FF99"}
+    default_colors = {"A": "#FFFF99", "B": "#FF9999", "C": "#99BFFF", "D": "#99FF99"}
     default_opacity = 0.35
     return render_template("linelist_full.html", defaults=default_colors, default_opacity=default_opacity)
+
 
 # ===== Restricted tag 페이지 =====
 @bp.route("/linelist/restricted", methods=["GET"])
 def linelist_restricted():
     default_restricted_color = "#FFD54D"
     default_opacity = 0.35
-    return render_template("linelist_restricted.html", default_color=default_restricted_color, default_opacity=default_opacity)
+    return render_template("linelist_restricted.html", default_color=default_restricted_color,
+                           default_opacity=default_opacity)
+
 
 # ===== Full tag 처리 =====
 @bp.route("/annotate/full", methods=["POST"])
 def annotate_full():
+    # ✅ 시작 시간 측정
+    start_time = time.time()
+
     ignore_case = request.form.get("ignore_case") == "on"
-    whole_word  = request.form.get("whole_word") == "on"
-    opacity     = float(request.form.get("opacity", "0.35"))
+    whole_word = request.form.get("whole_word") == "on"
+    opacity = float(request.form.get("opacity", "0.35"))
 
     color_hex = {
         "A": request.form.get("color_A", "#FFFF99"),
@@ -67,31 +78,50 @@ def annotate_full():
     }
 
     excel_file = request.files.get("excel_file")
-    pdf_file   = request.files.get("pdf_file")
-    if not excel_file or excel_file.filename == "":
-        flash("엑셀 파일을 업로드하세요."); return redirect(url_for("main.linelist_full"))
-    if not pdf_file or pdf_file.filename == "":
-        flash("PDF 파일을 업로드하세요."); return redirect(url_for("main.linelist_full"))
-    if not _ext_ok(excel_file.filename, ALLOWED_XL):
-        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다."); return redirect(url_for("main.linelist_full"))
-    if not _ext_ok(pdf_file.filename, ALLOWED_PDF):
-        flash("PDF 파일만 지원합니다."); return redirect(url_for("main.linelist_full"))
+    pdf_file = request.files.get("pdf_file")
 
+    # ✅ 파일 검증
+    if not excel_file or excel_file.filename == "":
+        flash("엑셀 파일을 업로드하세요.")
+        return redirect(url_for("main.linelist_full"))
+    if not pdf_file or pdf_file.filename == "":
+        flash("PDF 파일을 업로드하세요.")
+        return redirect(url_for("main.linelist_full"))
+    if not _ext_ok(excel_file.filename, ALLOWED_XL):
+        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다.")
+        return redirect(url_for("main.linelist_full"))
+    if not _ext_ok(pdf_file.filename, ALLOWED_PDF):
+        flash("PDF 파일만 지원합니다.")
+        return redirect(url_for("main.linelist_full"))
+
+    # ✅ 파일 저장
     job_id = f"{int(time.time())}_{uuid4().hex[:8]}"
     xlsx_name = secure_filename(f"{job_id}_" + excel_file.filename)
     pdf_in_name = secure_filename(f"{job_id}_" + pdf_file.filename)
     xlsx_path = os.path.join(current_app.config["UPLOAD_XLSX_DIR"], xlsx_name)
     pdf_in_path = os.path.join(current_app.config["UPLOAD_PDF_DIR"], pdf_in_name)
-    excel_file.save(xlsx_path); pdf_file.save(pdf_in_path)
+
+    try:
+        excel_file.save(xlsx_path)
+        pdf_file.save(pdf_in_path)
+    except Exception as e:
+        current_app.logger.error(f"[FULL] job={job_id} 파일 저장 실패: {e}")
+        flash(f"파일 저장 중 오류가 발생했습니다: {e}")
+        return redirect(url_for("main.linelist_full"))
 
     # 출력 파일명: 원본이름 + _ann
     orig_pdf_base = os.path.splitext(secure_filename(pdf_file.filename))[0]
-    pdf_out_name   = f"{orig_pdf_base}_ann.pdf"
+    pdf_out_name = f"{orig_pdf_base}_ann.pdf"
     not_found_name = f"{orig_pdf_base}_ann.xlsx"
-    pdf_out_path   = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
+    pdf_out_path = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
     not_found_path = os.path.join(current_app.config["OUTPUT_DIR"], not_found_name)
 
-    current_app.logger.info(f"[FULL] job={job_id} START xlsx={xlsx_path}, pdf={pdf_in_path} -> out={pdf_out_path}")
+    current_app.logger.info(
+        f"[FULL] job={job_id} START "
+        f"xlsx={os.path.basename(xlsx_path)}, "
+        f"pdf={os.path.basename(pdf_in_path)}"
+    )
+
     try:
         stats = annotate_pdf_with_excel(
             excel_path=xlsx_path,
@@ -104,54 +134,96 @@ def annotate_full():
             whole_word=whole_word,
             clean_terms=False
         )
+
+        # ✅ 처리 시간 계산 및 로깅
+        elapsed_time = time.time() - start_time
+        current_app.logger.info(
+            f"[FULL] job={job_id} DONE in {elapsed_time:.2f}s | "
+            f"pages={stats.get('pages')} hits={stats.get('hits')} "
+            f"not_found={stats.get('not_found_count')}"
+        )
+
+        # ✅ stats에 처리 시간 추가
+        stats['elapsed_time'] = round(elapsed_time, 2)
+
+    except FileNotFoundError as e:
+        current_app.logger.error(f"[FULL] job={job_id} 파일을 찾을 수 없습니다: {e}")
+        flash(f"파일을 찾을 수 없습니다: {e}")
+        return redirect(url_for("main.linelist_full"))
+    except ValueError as e:
+        current_app.logger.error(f"[FULL] job={job_id} 데이터 오류: {e}")
+        flash(f"데이터 처리 오류: {e}")
+        return redirect(url_for("main.linelist_full"))
     except Exception as e:
-        current_app.logger.exception(e)
+        current_app.logger.exception(f"[FULL] job={job_id} 예상치 못한 오류 발생")
         flash(f"작업 중 오류가 발생했습니다: {e}")
         return redirect(url_for("main.linelist_full"))
-
-    current_app.logger.info(f"[FULL] job={job_id} DONE hits={stats.get('hits')} nf={stats.get('not_found_count')} out={pdf_out_path}")
 
     return render_template(
         "result.html",
         stats=stats,
         output_pdf=pdf_out_name,
-        not_found_xlsx=(not_found_name if os.path.exists(not_found_path) and stats.get("not_found_count", 0) > 0 else None)
+        not_found_xlsx=(
+            not_found_name if os.path.exists(not_found_path) and stats.get("not_found_count", 0) > 0 else None)
     )
+
 
 # ===== Restricted tag 처리 =====
 @bp.route("/annotate/restricted", methods=["POST"])
 def annotate_restricted():
-    ignore_case   = request.form.get("ignore_case") == "on"
+    # ✅ 시작 시간 측정
+    start_time = time.time()
+
+    ignore_case = request.form.get("ignore_case") == "on"
     require_order = request.form.get("require_order") == "on"
-    opacity       = float(request.form.get("opacity", "0.35"))
-    color_hex     = request.form.get("color_restricted", "#FFD54D")  # (자동색 사용으로 실사용 X)
+    opacity = float(request.form.get("opacity", "0.35"))
+    color_hex = request.form.get("color_restricted", "#FFD54D")  # (자동색 사용으로 실사용 X)
 
     excel_file = request.files.get("excel_file")
-    pdf_file   = request.files.get("pdf_file")
-    if not excel_file or excel_file.filename == "":
-        flash("엑셀 파일을 업로드하세요."); return redirect(url_for("main.linelist_restricted"))
-    if not pdf_file or pdf_file.filename == "":
-        flash("PDF 파일을 업로드하세요."); return redirect(url_for("main.linelist_restricted"))
-    if not _ext_ok(excel_file.filename, ALLOWED_XL):
-        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다."); return redirect(url_for("main.linelist_restricted"))
-    if not _ext_ok(pdf_file.filename, ALLOWED_PDF):
-        flash("PDF 파일만 지원합니다."); return redirect(url_for("main.linelist_restricted"))
+    pdf_file = request.files.get("pdf_file")
 
+    # ✅ 파일 검증
+    if not excel_file or excel_file.filename == "":
+        flash("엑셀 파일을 업로드하세요.")
+        return redirect(url_for("main.linelist_restricted"))
+    if not pdf_file or pdf_file.filename == "":
+        flash("PDF 파일을 업로드하세요.")
+        return redirect(url_for("main.linelist_restricted"))
+    if not _ext_ok(excel_file.filename, ALLOWED_XL):
+        flash("엑셀 파일은 .xlsx 또는 .xls만 지원합니다.")
+        return redirect(url_for("main.linelist_restricted"))
+    if not _ext_ok(pdf_file.filename, ALLOWED_PDF):
+        flash("PDF 파일만 지원합니다.")
+        return redirect(url_for("main.linelist_restricted"))
+
+    # ✅ 파일 저장
     job_id = f"{int(time.time())}_{uuid4().hex[:8]}"
     xlsx_name = secure_filename(f"{job_id}_" + excel_file.filename)
     pdf_in_name = secure_filename(f"{job_id}_" + pdf_file.filename)
     xlsx_path = os.path.join(current_app.config["UPLOAD_XLSX_DIR"], xlsx_name)
     pdf_in_path = os.path.join(current_app.config["UPLOAD_PDF_DIR"], pdf_in_name)
-    excel_file.save(xlsx_path); pdf_file.save(pdf_in_path)
+
+    try:
+        excel_file.save(xlsx_path)
+        pdf_file.save(pdf_in_path)
+    except Exception as e:
+        current_app.logger.error(f"[RES] job={job_id} 파일 저장 실패: {e}")
+        flash(f"파일 저장 중 오류가 발생했습니다: {e}")
+        return redirect(url_for("main.linelist_restricted"))
 
     # 출력 파일명: 원본이름 + _ann
     orig_pdf_base = os.path.splitext(secure_filename(pdf_file.filename))[0]
-    pdf_out_name   = f"{orig_pdf_base}_ann.pdf"
+    pdf_out_name = f"{orig_pdf_base}_ann.pdf"
     not_found_name = f"{orig_pdf_base}_ann.xlsx"
-    pdf_out_path   = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
+    pdf_out_path = os.path.join(current_app.config["OUTPUT_DIR"], pdf_out_name)
     not_found_path = os.path.join(current_app.config["OUTPUT_DIR"], not_found_name)
 
-    current_app.logger.info(f"[RES] job={job_id} START xlsx={xlsx_path}, pdf={pdf_in_path} -> out={pdf_out_path}")
+    current_app.logger.info(
+        f"[RES] job={job_id} START "
+        f"xlsx={os.path.basename(xlsx_path)}, "
+        f"pdf={os.path.basename(pdf_in_path)}"
+    )
+
     try:
         stats = annotate_pdf_restricted_with_excel(
             excel_path=xlsx_path,
@@ -164,16 +236,32 @@ def annotate_restricted():
             require_order=require_order,
             clean_terms=False
         )
+
+        # ✅ 처리 시간 계산 및 로깅
+        elapsed_time = time.time() - start_time
+        current_app.logger.info(
+            f"[RES] job={job_id} DONE in {elapsed_time:.2f}s | "
+            f"pages={stats.get('pages')} sheets={stats.get('sheets')} "
+            f"total_hits={stats.get('hits')} "
+            f"rows_before={stats.get('rows_before_total')} "
+            f"rows_after={stats.get('rows_after_total')}"
+        )
+
+        # ✅ stats에 처리 시간 추가
+        stats['elapsed_time'] = round(elapsed_time, 2)
+
+    except FileNotFoundError as e:
+        current_app.logger.error(f"[RES] job={job_id} 파일을 찾을 수 없습니다: {e}")
+        flash(f"파일을 찾을 수 없습니다: {e}")
+        return redirect(url_for("main.linelist_restricted"))
+    except ValueError as e:
+        current_app.logger.error(f"[RES] job={job_id} 데이터 오류: {e}")
+        flash(f"데이터 처리 오류: {e}")
+        return redirect(url_for("main.linelist_restricted"))
     except Exception as e:
-        current_app.logger.exception(e)
+        current_app.logger.exception(f"[RES] job={job_id} 예상치 못한 오류 발생")
         flash(f"작업 중 오류가 발생했습니다: {e}")
         return redirect(url_for("main.linelist_restricted"))
-
-    current_app.logger.info(
-        f"[RES] job={job_id} DONE pages={stats.get('pages')} total_hits={stats.get('hits')} "
-        f"sheets={stats.get('sheets')} rows_before={stats.get('rows_before_total')} rows_after={stats.get('rows_after_total')} "
-        f"nf_file={stats.get('not_found_file_written')} out={pdf_out_path}"
-    )
 
     return render_template(
         "result.html",
@@ -182,17 +270,39 @@ def annotate_restricted():
         not_found_xlsx=(not_found_name if stats.get("not_found_file_written") else None)
     )
 
+
 @bp.route("/download/output/<path:filename>")
 def download_output(filename):
-    return send_from_directory(current_app.config["OUTPUT_DIR"], filename, as_attachment=True)
+    # ✅ 보안: 경로 traversal 방지
+    safe_filename = secure_filename(filename)
+    file_path = os.path.join(current_app.config["OUTPUT_DIR"], safe_filename)
+
+    if not os.path.exists(file_path):
+        flash("요청한 파일을 찾을 수 없습니다.")
+        return redirect(url_for("main.home"))
+
+    return send_from_directory(
+        current_app.config["OUTPUT_DIR"],
+        safe_filename,
+        as_attachment=True
+    )
+
 
 @bp.route("/download/upload/<path:filename>")
 def download_upload(filename):
+    # ✅ 보안: 경로 traversal 방지
+    safe_filename = secure_filename(filename)
     up_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     root = os.path.join(up_root, "uploads")
-    return send_from_directory(root, filename, as_attachment=True)
+    file_path = os.path.join(root, safe_filename)
 
-# 파일 맨 아래에 아래 내용 추가
+    if not os.path.exists(file_path):
+        flash("요청한 파일을 찾을 수 없습니다.")
+        return redirect(url_for("main.home"))
+
+    return send_from_directory(root, safe_filename, as_attachment=True)
+
+
 @bp.route('/shutdown')
 def shutdown():
     """
@@ -201,10 +311,10 @@ def shutdown():
     # 1. 정상 종료 시도
     shutdown_func = request.environ.get('werkzeug.server.shutdown')
     if shutdown_func:
-        print("Graceful shutdown initiated.")
+        current_app.logger.info("Graceful shutdown initiated.")
         shutdown_func()
         return "서버 종료 중..."
 
     # 2. 정상 종료 실패 시 (사용자 환경) 강제 종료 실행
-    print("Graceful shutdown not available. Forcing process termination.")
+    current_app.logger.warning("Graceful shutdown not available. Forcing process termination.")
     os._exit(0)

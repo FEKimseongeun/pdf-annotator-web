@@ -16,14 +16,16 @@ from .common import (
     gather_restricted_rows_from_df,
     dedupe_rows_in_sheet,
     save_pdf,
+    load_pdf_to_bytes,  # ✅ 추가
 )
 
+
 def _scan_restricted_page_multi_sheets(
-    page_no: int,
-    pdf_path: str,
-    sheet_rows_map_norm: Dict[str, List[Tuple[int, List[str]]]],  # {sheet: [(row_idx, [frag,...])]}
-    require_order: bool,
-    ignore_case: bool,
+        page_no: int,
+        pdf_bytes: bytes,  # ✅ 경로 대신 바이트 데이터
+        sheet_rows_map_norm: Dict[str, List[Tuple[int, List[str]]]],  # {sheet: [(row_idx, [frag,...])]}
+        require_order: bool,
+        ignore_case: bool,
 ):
     """
     페이지 단위로 모든 시트를 동시에 검사 + 중복 제거(라인/좌표).
@@ -33,7 +35,9 @@ def _scan_restricted_page_multi_sheets(
     """
     try:
         per_sheet = {s: {'matches': [], 'line_seen': set(), 'rect_seen': set()} for s in sheet_rows_map_norm.keys()}
-        with fitz.open(pdf_path) as doc:
+
+        # ✅ 메모리에서 PDF 열기
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
             page = doc.load_page(page_no)
             lines = page_lines_with_words(page)
             norm_lines = []
@@ -53,11 +57,13 @@ def _scan_restricted_page_multi_sheets(
                     matched_row_idx = None
                     if require_order:
                         for row_idx, frags in rows:
-                            pos = 0; ok = True
+                            pos = 0;
+                            ok = True
                             for f in frags:
                                 idx = ltext_norm.find(f, pos)
                                 if idx < 0:
-                                    ok = False; break
+                                    ok = False;
+                                    break
                                 pos = idx + len(f)
                             if ok:
                                 matched_row_idx = row_idx
@@ -80,16 +86,17 @@ def _scan_restricted_page_multi_sheets(
     except Exception as e:
         return (page_no, None, str(e))
 
+
 def annotate_pdf_restricted_with_excel(
-    excel_path: str,
-    pdf_input_path: str,
-    pdf_output_path: str,
-    not_found_xlsx_path: str,
-    color_hex: Optional[str] = None,      # 무시됨(시트별 자동 색상)
-    opacity: float = 0.35,
-    ignore_case: bool = True,
-    require_order: bool = False,
-    clean_terms: bool = False
+        excel_path: str,
+        pdf_input_path: str,
+        pdf_output_path: str,
+        not_found_xlsx_path: str,
+        color_hex: Optional[str] = None,  # 무시됨(시트별 자동 색상)
+        opacity: float = 0.35,
+        ignore_case: bool = True,
+        require_order: bool = False,
+        clean_terms: bool = False
 ) -> Dict:
     """
     Restricted:
@@ -144,6 +151,9 @@ def annotate_pdf_restricted_with_excel(
     # 발견된 행 인덱스 집합(미매칭 계산용)
     found_row_indices: Dict[str, set] = {s: set() for s in sheet_rows_map_norm.keys()}
 
+    # ✅ PDF를 메모리에 로드 (한 번만)
+    pdf_bytes = load_pdf_to_bytes(pdf_input_path)
+
     doc = fitz.open(pdf_input_path)
     num_pages = len(doc)
     total_hits = 0
@@ -151,10 +161,11 @@ def annotate_pdf_restricted_with_excel(
 
     # 페이지 병렬 처리 (동결환경에선 thread 풀로 자동 전환)
     with get_executor(max_workers=MAX_WORKERS) as ex:
+        # ✅ pdf_bytes 전달
         futures = {
             ex.submit(
                 _scan_restricted_page_multi_sheets,
-                p, pdf_input_path, sheet_rows_map_norm, require_order, ignore_case
+                p, pdf_bytes, sheet_rows_map_norm, require_order, ignore_case
             ): p
             for p in range(num_pages)
         }
@@ -173,7 +184,7 @@ def annotate_pdf_restricted_with_excel(
                 rgb = sheet_color_rgb[sname]
                 for (x0, y0, x1, y1), line_text, row_idx in bucket['matches']:
                     annot = page.add_highlight_annot(fitz.Rect(x0, y0, x1, y1))
-                    annot.set_colors(stroke=rgb)   # highlight는 fill 미지원
+                    annot.set_colors(stroke=rgb)  # highlight는 fill 미지원
                     annot.set_opacity(opacity)
                     annot.set_info(content=f"{sname} : {line_text}", title="Restricted")
                     annot.update()
@@ -192,14 +203,14 @@ def annotate_pdf_restricted_with_excel(
         per_sheet_stats.append({
             "sheet": sname,
             "rows_before": before,
-            "rows_after":  after,
-            "hits": len(found_idx_set),            # ‘발견된 행’ 종류 수
+            "rows_after": after,
+            "hits": len(found_idx_set),  # '발견된 행' 종류 수
             "not_found_count": len(nf_rows),
             "color_rgb": sheet_color_rgb[sname],
         })
 
-    # 저장
-    save_pdf(doc, pdf_output_path, compact=True)
+    # ✅ 빠른 저장
+    save_pdf(doc, pdf_output_path, compact=False)
     doc.close()
 
     # not_found.xlsx
@@ -211,7 +222,7 @@ def annotate_pdf_restricted_with_excel(
                 df_nf.to_excel(writer, sheet_name=safe_name if safe_name else "Sheet", index=False)
 
     rows_before_total = sum(b for (b, a) in per_sheet_rows_before_after.values()) if per_sheet_rows_before_after else 0
-    rows_after_total  = sum(a for (b, a) in per_sheet_rows_before_after.values()) if per_sheet_rows_before_after else 0
+    rows_after_total = sum(a for (b, a) in per_sheet_rows_before_after.values()) if per_sheet_rows_before_after else 0
 
     return {
         "pages": num_pages,
