@@ -287,22 +287,6 @@ def download_output(filename):
         as_attachment=True
     )
 
-
-@bp.route("/download/upload/<path:filename>")
-def download_upload(filename):
-    # ✅ 보안: 경로 traversal 방지
-    safe_filename = secure_filename(filename)
-    up_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    root = os.path.join(up_root, "uploads")
-    file_path = os.path.join(root, safe_filename)
-
-    if not os.path.exists(file_path):
-        flash("요청한 파일을 찾을 수 없습니다.")
-        return redirect(url_for("main.home"))
-
-    return send_from_directory(root, safe_filename, as_attachment=True)
-
-
 @bp.route('/shutdown')
 def shutdown():
     """
