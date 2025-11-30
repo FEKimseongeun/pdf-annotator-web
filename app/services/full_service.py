@@ -1,40 +1,22 @@
 # app/services/full_service.py
 import os
-from concurrent.futures import as_completed
-from typing import Dict, List, Tuple
-
+import logging
+from typing import Dict
 import pandas as pd
 import fitz  # PyMuPDF
+from flashtext import KeywordProcessor
 
-from .common import (
-    MAX_WORKERS, get_executor, hex_to_rgb01, search_flags,
-    gather_terms_full, save_pdf, load_pdf_to_bytes  # ✅ 추가
-)
+logger = logging.getLogger(__name__)
 
-
-def _scan_page_for_all_terms(
-        page_no: int,
-        pdf_bytes: bytes,  # ✅ 경로 대신 바이트 데이터
-        terms_with_meta: List[Tuple[str, str, Tuple[float, float, float]]],  # (label, text, rgb)
-        flags: int
-) -> Tuple[int, List[Tuple[str, str, Tuple[float, float, float], fitz.Rect]], str | None]:
-    """
-    【최적화된 함수】
-    하나의 페이지를 메모리에서 열어 모든 검색어(terms)를 한 번에 검색합니다.
-    반환값: (페이지 번호, [(label, text, rgb, rect), ...], 에러 메시지)
-    """
-    page_hits = []
-    try:
-        # ✅ 메모리에서 PDF 열기 (디스크 I/O 제거)
-        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-            page = doc.load_page(page_no)
-            for label, text, rgb in terms_with_meta:
-                rects = page.search_for(text, flags=flags)
-                for r in rects:
-                    page_hits.append((label, text, rgb, r))
-        return (page_no, page_hits, None)
-    except Exception as e:
-        return (page_no, [], str(e))
+COLOR_PALETTE = [
+    (1, 1, 0),
+    (0, 1, 0),
+    (0, 1, 1),
+    (1, 0, 1),
+    (1, 0.5, 0),
+    (0.5, 0.5, 1),
+    (0.8, 0.8, 0.8)
+]
 
 
 def annotate_pdf_with_excel(
@@ -42,83 +24,201 @@ def annotate_pdf_with_excel(
         pdf_input_path: str,
         pdf_output_path: str,
         not_found_xlsx_path: str,
-        color_hex_map: Dict[str, str],
         opacity: float = 0.35,
-        ignore_case: bool = True,
-        whole_word: bool = False,
-        clean_terms: bool = False
+        **kwargs
 ) -> Dict:
+    logger.info("=" * 60)
+    logger.info("Full tag 처리 시작")
+    logger.info(f"엑셀: {os.path.basename(excel_path)}")
+    logger.info(f"PDF: {os.path.basename(pdf_input_path)}")
+    logger.info("=" * 60)
+
     if not os.path.exists(excel_path):
         raise FileNotFoundError(f"엑셀 파일 없음: {excel_path}")
     if not os.path.exists(pdf_input_path):
         raise FileNotFoundError(f"PDF 파일 없음: {pdf_input_path}")
 
-    # 1. 엑셀에서 모든 검색어 목록을 미리 준비합니다.
-    color_map_rgb = {k: hex_to_rgb01(v) for k, v in color_hex_map.items()}
-    all_terms = gather_terms_full(excel_path, clean_terms=clean_terms)
-    if not all_terms:
-        raise ValueError("엑셀에서 검색할 텍스트가 없습니다. (A/B/C/D 열 확인)")
+    logger.info("📊 엑셀 파일 로딩 중...")
+    df = pd.read_excel(excel_path)
+    logger.info(f"   - 컬럼 수: {len(df.columns)}")
+    logger.info(f"   - 컬럼 목록: {list(df.columns)}")
 
-    terms_with_meta = [(label, text, color_map_rgb.get(label, (1, 1, 0))) for label, text in all_terms]
+    keyword_processor = KeywordProcessor(case_sensitive=False)
+    keyword_metadata = {}
+    all_keywords_map = {}
+    total_keywords = 0
 
-    # ✅ PDF를 메모리에 로드 (한 번만)
-    pdf_bytes = load_pdf_to_bytes(pdf_input_path)
+    logger.info("🔍 검색 엔진 구축 중...")
+    for idx, col_header in enumerate(df.columns):
+        color = COLOR_PALETTE[idx % len(COLOR_PALETTE)]
+        col_keyword_count = 0
 
-    doc = fitz.open(pdf_input_path)
-    num_pages = len(doc)
-    flags = search_flags(ignore_case, whole_word)
+        for keyword in df[col_header].dropna():
+            word_str = str(keyword).strip()
+            if not word_str:
+                continue
 
+            keyword_processor.add_keyword(word_str)
+            word_lower = word_str.lower()
+
+            keyword_metadata[word_lower] = {
+                "header": str(col_header),
+                "color": color,
+                "original_word": word_str
+            }
+
+            all_keywords_map[word_lower] = {
+                'word': word_str,
+                'header': str(col_header)
+            }
+
+            total_keywords += 1
+            col_keyword_count += 1
+
+        logger.info(f"   - {col_header}: {col_keyword_count}개 키워드")
+
+    if not all_keywords_map:
+        raise ValueError("엑셀에서 검색할 텍스트가 없습니다.")
+
+    logger.info(f"✅ 총 {total_keywords}개 키워드 등록 완료")
+
+    logger.info("📄 PDF 파일 열기 중...")
+    found_keywords = set()
     total_hits = 0
-    found_terms = set()
     failed_pages = []
 
-    # 2. 【로직 변경】페이지 단위로 작업을 병렬 처리합니다.
-    with get_executor(max_workers=MAX_WORKERS) as ex:
-        # ✅ 각 페이지를 스캔하는 작업을 제출 (pdf_bytes 전달)
-        futures = {
-            ex.submit(_scan_page_for_all_terms, p, pdf_bytes, terms_with_meta, flags): p
-            for p in range(num_pages)
-        }
+    try:
+        doc = fitz.open(pdf_input_path)
 
-        for fut in as_completed(futures):
+        if doc.is_repaired:
+            logger.warning("⚠️  PDF가 손상되어 자동 복구되었습니다.")
+
+        num_pages = len(doc)
+        logger.info(f"   - 총 페이지 수: {num_pages}")
+        logger.info("=" * 60)
+
+        for page_num in range(num_pages):
+            logger.info(f"📖 페이지 {page_num + 1}/{num_pages} 처리 중...")
+
             try:
-                page_no, page_hits, err = fut.result()
+                page = doc.load_page(page_num)
+
+                try:
+                    text_on_page = page.get_text("text")
+                    text_length = len(text_on_page)
+                    logger.info(f"   - 텍스트 추출: {text_length}자")
+                except Exception as e:
+                    logger.error(f"❌ 페이지 {page_num + 1} 텍스트 추출 실패: {e}")
+                    failed_pages.append(page_num + 1)
+                    continue
+
+                keywords_on_page = keyword_processor.extract_keywords(text_on_page)
+                unique_keywords_on_page = set(keywords_on_page)
+
+                if not unique_keywords_on_page:
+                    logger.info(f"   - 발견된 키워드: 0개")
+                    continue
+
+                logger.info(f"   - 발견된 키워드: {len(unique_keywords_on_page)}개")
+                found_keywords.update(k.lower() for k in unique_keywords_on_page)
+                page_hits = 0
+
+                for keyword in unique_keywords_on_page:
+                    keyword_lower = keyword.lower()
+
+                    try:
+                        quads = page.search_for(keyword)
+                        quad_count = len(quads)
+
+                        if quad_count > 0:
+                            logger.debug(f"      · '{keyword}': {quad_count}개 위치 발견")
+                    except Exception as e:
+                        logger.error(f"❌ 키워드 '{keyword}' 검색 실패: {e}")
+                        continue
+
+                    meta = keyword_metadata.get(keyword_lower)
+                    if not meta:
+                        continue
+
+                    annot_title = meta['header']
+                    annot_color = meta['color']
+
+                    for quad in quads:
+                        try:
+                            annot = page.add_highlight_annot(quad)
+                            annot.set_colors(stroke=annot_color)
+                            annot.set_opacity(opacity)
+                            annot.set_info(content=keyword, title=annot_title)
+                            annot.update()
+                            total_hits += 1
+                            page_hits += 1
+                        except Exception as e:
+                            logger.error(f"❌ 하이라이트 추가 실패: {e}")
+                            continue
+
+                logger.info(f"   ✅ 페이지 {page_num + 1} 완료: {page_hits}개 하이라이트 추가")
+
             except Exception as e:
-                failed_pages.append((futures[fut], str(e)))
+                logger.error(f"❌ 페이지 {page_num + 1} 처리 실패: {e}")
+                failed_pages.append(page_num + 1)
                 continue
 
-            if err:
-                failed_pages.append((page_no, err))
-                continue
+        logger.info("=" * 60)
+        logger.info("💾 PDF 저장 중...")
 
-            if not page_hits:
-                continue
+        try:
+            doc.save(pdf_output_path)
+            logger.info(f"✅ PDF 저장 완료: {os.path.basename(pdf_output_path)}")
+        except Exception as e:
+            logger.warning(f"⚠️  압축 저장 실패, 일반 저장 시도: {e}")
+            doc.save(pdf_output_path)
+            logger.info(f"✅ PDF 저장 완료 (일반 모드)")
 
-            # 3. 해당 페이지에 대한 모든 검색 결과를 한 번에 주석으로 추가합니다.
-            page = doc.load_page(page_no)
-            for label, text, rgb, rect in page_hits:
-                annot = page.add_highlight_annot(rect)
-                annot.set_colors(stroke=rgb)
-                annot.set_opacity(opacity)
-                annot.set_info(content=f"{label}: {text}", title="자동 검색")
-                annot.update()
-                total_hits += 1
-                found_terms.add((label, text))
+        doc.close()
 
-    # 4. 발견되지 않은 검색어를 계산합니다.
-    all_terms_set = set(all_terms)
-    not_found = list(all_terms_set - found_terms)
+    except Exception as e:
+        logger.error(f"❌ PDF 처리 중 치명적 오류 발생: {e}", exc_info=True)
+        raise RuntimeError(f"PDF 처리 중 오류 발생: {e}")
 
-    save_pdf(doc, pdf_output_path, compact=False)  # ✅ 빠른 저장
-    doc.close()
+    logger.info("=" * 60)
+    logger.info("📊 결과 집계 중...")
 
-    not_found_count = len(not_found)
-    if not_found_count > 0:
-        pd.DataFrame(not_found, columns=["Label", "Text"]).to_excel(not_found_xlsx_path, index=False)
+    all_keys = set(all_keywords_map.keys())
+    missing_keys = all_keys - found_keywords
+    not_found_count = len(missing_keys)
+
+    logger.info(f"   - 전체 키워드: {total_keywords}개")
+    logger.info(f"   - 발견된 키워드: {len(found_keywords)}개")
+    logger.info(f"   - 미발견 키워드: {not_found_count}개")
+    logger.info(f"   - 총 하이라이트: {total_hits}개")
+
+    if failed_pages:
+        logger.warning(f"⚠️  처리 실패 페이지: {failed_pages}")
+
+    if missing_keys:
+        logger.info("📝 미발견 키워드 엑셀 생성 중...")
+        missing_data_list = []
+        for key in missing_keys:
+            info = all_keywords_map[key]
+            missing_data_list.append({
+                'Header': info['header'],
+                'Keyword': info['word'],
+                'Status': 'Not Found'
+            })
+
+        missing_df = pd.DataFrame(missing_data_list).sort_values(by=['Header', 'Keyword'])
+        missing_df.to_excel(not_found_xlsx_path, index=False)
+        logger.info(f"✅ 미발견 목록 저장: {os.path.basename(not_found_xlsx_path)}")
+    else:
+        logger.info("🎉 모든 키워드가 발견되었습니다!")
+
+    logger.info("=" * 60)
+    logger.info("✅ Full tag 처리 완료")
+    logger.info("=" * 60)
 
     return {
         "pages": num_pages,
-        "terms": len(all_terms),
+        "terms": total_keywords,
         "hits": total_hits,
         "not_found_count": not_found_count,
         "failed_count": len(failed_pages),

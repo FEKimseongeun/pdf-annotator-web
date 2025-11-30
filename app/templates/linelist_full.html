@@ -2,12 +2,17 @@
 {% block title %}라인리스트 - Full tag{% endblock %}
 {% block content %}
 <form class="card" id="upload-form" action="{{ url_for('main.annotate_full') }}" method="post" enctype="multipart/form-data">
-  <h2>Full tag (정확 문자열 매칭)</h2>
+  <h2>Full tag (FlashText 기반 고속 검색)</h2>
+  <p class="muted">
+    엑셀의 모든 컬럼 데이터를 자동으로 인식하고, 각 컬럼별로 자동 색상이 할당됩니다.<br>
+    FlashText 알고리즘을 사용하여 빠른 검색이 가능합니다.
+  </p>
 
   <div class="grid-2">
     <div>
       <label>엑셀 파일 (.xlsx / .xls)</label>
       <input type="file" name="excel_file" accept=".xlsx,.xls" required />
+      <small class="muted">모든 컬럼의 데이터가 자동으로 검색됩니다.</small>
     </div>
     <div>
       <label>PDF 파일 (.pdf)</label>
@@ -15,40 +20,11 @@
     </div>
   </div>
 
-  <h3>색상 선택 (컬럼별)</h3>
-  <div class="grid-4">
-    <div class="color-row">
-      <label>A</label>
-      <input type="color" name="color_A" value="{{ defaults['A'] }}">
-      <span class="hex">{{ defaults['A'] }}</span>
-    </div>
-    <div class="color-row">
-      <label>B</label>
-      <input type="color" name="color_B" value="{{ defaults['B'] }}">
-      <span class="hex">{{ defaults['B'] }}</span>
-    </div>
-    <div class="color-row">
-      <label>C</label>
-      <input type="color" name="color_C" value="{{ defaults['C'] }}">
-      <span class="hex">{{ defaults['C'] }}</span>
-    </div>
-    <div class="color-row">
-      <label>D</label>
-      <input type="color" name="color_D" value="{{ defaults['D'] }}">
-      <span class="hex">{{ defaults['D'] }}</span>
-    </div>
-  </div>
-
-  <h3>불투명도</h3>
+  <h3>표시 옵션</h3>
   <div class="opacity-row">
-    <input type="range" name="opacity" min="0.05" max="1.0" step="0.05" value="{{ default_opacity }}" oninput="opVal.value=this.value">
-    <output id="opVal">{{ default_opacity }}</output>
-  </div>
-
-  <h3>검색 옵션</h3>
-  <div class="grid-2">
-    <label><input type="checkbox" name="ignore_case" checked> 대소문자 무시</label>
-    <label><input type="checkbox" name="whole_word"> 완전 단어 일치</label>
+    <label style="display:block;">불투명도</label>
+    <input type="range" name="opacity" min="0.05" max="1.0" step="0.05" value="0.35" oninput="opVal.value=this.value">
+    <output id="opVal">0.35</output>
   </div>
 
   <div class="actions">
@@ -70,17 +46,10 @@
   document.getElementById('upload-form').addEventListener('submit', function() {
     const excelFile = this.elements['excel_file'].files.length;
     const pdfFile = this.elements['pdf_file'].files.length;
-    // 파일이 모두 선택되었을 때만 실행
     if (excelFile > 0 && pdfFile > 0) {
       document.getElementById('upload-form').style.display = 'none';
       document.getElementById('loading-state').style.display = 'block';
     }
-  });
-
-  // 색상 hex 코드 표시 갱신 (기존 기능)
-  document.querySelectorAll('.color-row input[type="color"]').forEach(inp=>{
-    const span = inp.parentElement.querySelector('.hex');
-    inp.addEventListener('input', ()=> span.textContent = inp.value.toUpperCase());
   });
 </script>
 {% endblock %}

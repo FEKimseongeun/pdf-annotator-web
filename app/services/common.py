@@ -88,35 +88,6 @@ def rect_key(rect_tuple, ndigits: int = 2):
     x0, y0, x1, y1 = rect_tuple
     return (round(x0, ndigits), round(y0, ndigits), round(x1, ndigits), round(y1, ndigits))
 
-# ===== FULL용 컬럼 매핑 + 수집기 =====
-COLUMN_MAP: List[Tuple[int, str]] = [
-    (0, "A"),
-    (1, "B"),
-    (2, "C"),
-    (3, "D"),
-]
-
-def gather_terms_full(excel_path: str, clean_terms: bool) -> List[Tuple[str, str]]:
-    """
-    Full tag용: A/B/C/D 열의 문자열 수집.
-    - clean_terms=True면 strip만
-    - 값이 'A','B','C','D' 자체인 것은 제외
-    - 순서 유지 중복 제거
-    """
-    df = pd.read_excel(excel_path, header=None)
-    out: List[Tuple[str, str]] = []
-    for col_idx, label in COLUMN_MAP:
-        if col_idx not in df.columns:
-            continue
-        s = df[col_idx].dropna().astype(str)
-        if clean_terms:
-            s = s.map(lambda x: x.strip())
-        s = s[s != ""]
-        s = s[~s.str.fullmatch(label, case=False)]
-        terms = list(dict.fromkeys(s.tolist()))
-        for t in terms:
-            out.append((label, t))
-    return out
 
 # ===== RESTRICTED용 엑셀 로딩/중복 제거 =====
 def gather_restricted_rows_from_df(

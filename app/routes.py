@@ -59,23 +59,14 @@ def linelist_restricted():
     return render_template("linelist_restricted.html", default_color=default_restricted_color,
                            default_opacity=default_opacity)
 
-
 # ===== Full tag 처리 =====
 @bp.route("/annotate/full", methods=["POST"])
 def annotate_full():
     # ✅ 시작 시간 측정
     start_time = time.time()
 
-    ignore_case = request.form.get("ignore_case") == "on"
-    whole_word = request.form.get("whole_word") == "on"
+    # ✅ opacity만 사용 (색상은 자동 할당되므로 제거)
     opacity = float(request.form.get("opacity", "0.35"))
-
-    color_hex = {
-        "A": request.form.get("color_A", "#FFFF99"),
-        "B": request.form.get("color_B", "#FF9999"),
-        "C": request.form.get("color_C", "#99BFFF"),
-        "D": request.form.get("color_D", "#99FF99"),
-    }
 
     excel_file = request.files.get("excel_file")
     pdf_file = request.files.get("pdf_file")
@@ -128,11 +119,7 @@ def annotate_full():
             pdf_input_path=pdf_in_path,
             pdf_output_path=pdf_out_path,
             not_found_xlsx_path=not_found_path,
-            color_hex_map=color_hex,
-            opacity=opacity,
-            ignore_case=ignore_case,
-            whole_word=whole_word,
-            clean_terms=False
+            opacity=opacity
         )
 
         # ✅ 처리 시간 계산 및 로깅
@@ -166,7 +153,6 @@ def annotate_full():
         not_found_xlsx=(
             not_found_name if os.path.exists(not_found_path) and stats.get("not_found_count", 0) > 0 else None)
     )
-
 
 # ===== Restricted tag 처리 =====
 @bp.route("/annotate/restricted", methods=["POST"])
